@@ -1,0 +1,7 @@
+<h1>Strona główna</h1>
+{% if user.is_authenticated %}
+  <p>Witaj, {{ user.username }} | <a href="{% url 'website:logout' %}">Wyloguj</a></p>
+  <a href="{% url 'website:converse' room_code='pokoj123' %}">Wejdź do pokoju</a>
+{% else %}
+  <p><a href="{% url 'website:login' %}">Zaloguj się</a> lub <a href="{% url 'website:register' %}">Zarejestruj</a></p>
+{% endif %}

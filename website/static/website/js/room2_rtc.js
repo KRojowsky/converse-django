@@ -1,51 +1,55 @@
-const APP_ID = 'f3d9aeee514b4958bae2a751a01a49e9'
+import { displayFrame, videoFrames, userIdInDisplayFrame, expandVideoFrame, setUserIdInDisplayFrame } from './room2.js';
 
-const logError = (message, error) => {
-    console.error(`[WebRTC ERROR] ${message}`, error);
-    addBotMessageToDom(`Błąd: ${message}. Sprawdź konsolę dla szczegółów.`);
-}
-
-let uid = sessionStorage.getItem('uid')
-if (!uid) {
-    uid = String(Math.floor(Math.random() * 10000))
-    sessionStorage.setItem('uid', uid)
-}
+export const APP_ID = 'f3d9aeee514b4958bae2a751a01a49e9';
+export let rtmClient;
+export let channel;
+export let uid;
+export let displayName;
+export let roomId;
 
 let token = null;
 let client;
-
-let rtmClient;
-let channel;
-
-const queryString = window.location.search
-const urlParams = new URLSearchParams(queryString)
-let roomId = urlParams.get('room')
-console.log('Room ID:', roomId);
-
-if (!roomId) {
-    roomId = 'main'
-}
-
-let displayName = sessionStorage.getItem('display_name')
-if (!displayName) {
-    displayName = "Użytkownik_" + uid;
-    console.warn("Nie znaleziono display_name, używam domyślnej wartości:", displayName);
-}
-
-let localTracks = []
-let remoteUsers = {}
-
+let localTracks = [];
+let remoteUsers = {};
 let localScreenTracks;
 let sharingScreen = false;
-let userIdInDisplayFrame = null;
-let displayFrame = document.getElementById('stream__box') || document.createElement('div');
 
+export const logError = (message, error) => {
+    console.error(`[WebRTC ERROR] ${message}`, error);
+    addBotMessageToDom(`Błąd: ${message}. Sprawdź konsolę dla szczegółów.`);
+};
 
-if (!APP_ID) {
-    logError("Brak APP_ID. Należy ustawić prawidłowy APP_ID z panelu Agora");
+function initializeVariables() {
+    // Get or create user ID
+    uid = sessionStorage.getItem('uid');
+    if (!uid) {
+        uid = String(Math.floor(Math.random() * 10000));
+        sessionStorage.setItem('uid', uid);
+    }
+
+    const queryString = window.location.search;
+    const urlParams = new URLSearchParams(queryString);
+    roomId = urlParams.get('room');
+    console.log('Room ID:', roomId);
+
+    if (!roomId) {
+        roomId = 'main';
+    }
+
+    displayName = sessionStorage.getItem('display_name');
+    if (!displayName) {
+        displayName = "Użytkownik_" + uid;
+        console.warn("Nie znaleziono display_name, używam domyślnej wartości:", displayName);
+    }
 }
 
-let joinRoomInit = async () => {
+initializeVariables();
+
+export let joinRoomInit = async () => {
+    if (!APP_ID) {
+        logError("Brak APP_ID. Należy ustawić prawidłowy APP_ID z panelu Agora");
+        return;
+    }
     try {
         console.log("Inicjalizacja połączenia RTM...");
         rtmClient = await AgoraRTM.createInstance(APP_ID)
@@ -69,11 +73,7 @@ let joinRoomInit = async () => {
 
         console.log("Dołączono do kanału RTM:", roomId);
         
-        channel.on('MemberJoined', handleMemberJoined)
-        channel.on('MemberLeft', handleMemberLeft)
-        channel.on('ChannelMessage', handleChannelMessage)
-
-        getMembers()
+        
         addBotMessageToDom(`Witaj na zajęciach ${displayName}! 👋`)
 
         console.log("Inicjalizacja połączenia RTC...");
@@ -110,30 +110,39 @@ let joinRoomInit = async () => {
     }
 }
 
-let joinStream = async () => {
+export let joinStream = async () => {
     try {
         console.log("Próba uzyskania dostępu do kamery i mikrofonu...");
-        
-        
+
         const devices = await AgoraRTC.getDevices();
+        console.table(devices);
+
         const hasAudio = devices.some(device => device.kind === 'audioinput');
         const hasVideo = devices.some(device => device.kind === 'videoinput');
-        
+
         if (!hasAudio) {
             logError("Nie wykryto mikrofonu w systemie", null);
+        } else {
+            devices.filter(d => d.kind === 'audioinput').forEach((d, i) => {
+                if (!d.label) {
+                    console.warn(`Mikrofon ${i + 1} nie ma label – brak zgody użytkownika?`, d);
+                }
+            });
         }
-        
+
         if (!hasVideo) {
             logError("Nie wykryto kamery w systemie", null);
+        } else {
+            devices.filter(d => d.kind === 'videoinput').forEach((d, i) => {
+                if (!d.label) {
+                    console.warn(`Kamera ${i + 1} nie ma label – brak zgody użytkownika?`, d);
+                }
+            });
         }
-        
-        
+
         localTracks = await AgoraRTC.createMicrophoneAndCameraTracks(
-            { 
-                AEC: true, 
-                ANS: true 
-            }, 
-            { 
+            { AEC: true, ANS: true },
+            {
                 encoderConfig: {
                     width: { min: 640, ideal: 1920, max: 1920 },
                     height: { min: 480, ideal: 1080, max: 1080 }
@@ -143,13 +152,14 @@ let joinStream = async () => {
         ).catch(error => {
             if (error.code === "PERMISSION_DENIED") {
                 logError("Odmówiono dostępu do kamery lub mikrofonu. Sprawdź uprawnienia przeglądarki", error);
+            } else if (error.name === "NotReadableError") {
+                logError("Urządzenie zajęte lub niedostępne (NotReadableError)", error);
             } else {
                 logError("Błąd podczas tworzenia strumieni audio/wideo", error);
             }
             throw error;
         });
 
-        
         if (!localTracks[0] || !localTracks[1]) {
             logError("Nie udało się uzyskać dostępu do mikrofonu lub kamery", null);
             return;
@@ -164,22 +174,22 @@ let joinStream = async () => {
         document.getElementById('streams__container').insertAdjacentHTML('beforeend', player);
         document.getElementById(`user-container-${uid}`).addEventListener('click', expandVideoFrame);
 
-        
         const userVideoElement = document.getElementById(`user-${uid}`);
         if (!userVideoElement) {
             logError(`Nie znaleziono elementu HTML o ID user-${uid}`, null);
             return;
         }
 
-        
         try {
+            await localTracks[1].setMuted(true);
+            console.log("Kamera wyciszona domyślnie");
+
             localTracks[1].play(`user-${uid}`);
-            console.log("Lokalne wideo uruchomione");
+            console.log("Lokalne wideo uruchomione (wyciszone)");
         } catch (error) {
             logError("Nie udało się odtworzyć lokalnego strumienia wideo", error);
         }
 
-        
         try {
             await client.publish([localTracks[0], localTracks[1]]);
             console.log("Lokalne strumienie opublikowane pomyślnie");
@@ -187,37 +197,54 @@ let joinStream = async () => {
             logError("Nie udało się opublikować strumieni lokalnych", error);
         }
 
-        
         let cameraBtn = document.getElementById('camera-btn');
         if (cameraBtn) {
             cameraBtn.classList.remove('active');
+            cameraBtn.classList.add('disabled');
         }
+
     } catch (error) {
         logError("Wystąpił błąd podczas dołączania do strumienia", error);
     }
 }
 
-let switchToCamera = async () => {
+
+export let switchToCamera = async () => {
     try {
+        let streamsContainer = document.getElementById('streams__container');
         let player = `<div class="video__container" id="user-container-${uid}">
                         <div class="video-player" id="user-${uid}"></div>
                      </div>`;
-        displayFrame.insertAdjacentHTML('beforeend', player);
-
-        await localTracks[0].setMuted(true);
+        
+        streamsContainer.insertAdjacentHTML('beforeend', player);
+        
         await localTracks[1].setMuted(true);
 
-        const micBtn = document.getElementById('mic-btn');
+        const cameraBtn = document.getElementById('camera-btn');
         const screenBtn = document.getElementById('screen-btn');
         
-        if (micBtn) micBtn.classList.remove('active');
-        if (screenBtn) screenBtn.classList.remove('active');
+        if (cameraBtn) {
+            cameraBtn.classList.remove('active');
+            cameraBtn.classList.add('disabled');
+        }
+        if (screenBtn) {
+            screenBtn.classList.remove('active');
+            screenBtn.classList.add('disabled');
+        }
 
-        try {
-            localTracks[1].play(`user-${uid}`);
-            console.log("Przełączono na kamerę");
-        } catch (error) {
-            logError("Nie udało się odtworzyć lokalnego strumienia wideo po przełączeniu", error);
+        const newContainer = document.getElementById(`user-container-${uid}`);
+        if (newContainer) {
+            newContainer.addEventListener('click', expandVideoFrame);
+            
+            try {
+                localTracks[1].play(`user-${uid}`);
+                console.log("Przełączono na kamerę (wyciszoną)");
+            } catch (error) {
+                logError("Nie udało się odtworzyć lokalnego strumienia wideo po przełączeniu", error);
+            }
+        } else {
+            logError("Nie udało się utworzyć kontenera dla kamery", null);
+            return;
         }
 
         try {
@@ -226,12 +253,20 @@ let switchToCamera = async () => {
         } catch (error) {
             logError("Nie udało się opublikować strumienia kamery", error);
         }
+        
+        displayFrame.style.display = 'none';
+        
+        let videoFrames = document.getElementsByClassName('video__container');
+        for (let i = 0; i < videoFrames.length; i++) {
+            videoFrames[i].style.height = '300px';
+            videoFrames[i].style.width = '300px';
+        }
     } catch (error) {
         logError("Wystąpił błąd podczas przełączania na kamerę", error);
     }
 }
 
-let handleUserPublished = async (user, mediaType) => {
+export let handleUserPublished = async (user, mediaType) => {
     try {
         console.log(`Użytkownik ${user.uid} opublikował strumień typu: ${mediaType}`);
         remoteUsers[user.uid] = user;
@@ -276,7 +311,7 @@ let handleUserPublished = async (user, mediaType) => {
     }
 }
 
-let handleUserLeft = async (user) => {
+export let handleUserLeft = async (user) => {
     try {
         console.log(`Użytkownik ${user.uid} opuścił pokój`);
         delete remoteUsers[user.uid];
@@ -308,7 +343,7 @@ let handleUserLeft = async (user) => {
     }
 }
 
-let toggleMic = async (e) => {
+export let toggleMic = async (e) => {
     try {
         let button = e.currentTarget;
 
@@ -331,7 +366,7 @@ let toggleMic = async (e) => {
     }
 }
 
-let toggleCamera = async (e) => {
+export let toggleCamera = async (e) => {
     try {
         let button = e.currentTarget;
 
@@ -354,7 +389,7 @@ let toggleCamera = async (e) => {
     }
 }
 
-let toggleScreen = async (e) => {
+export let toggleScreen = async (e) => {
     try {
         let screenButton = e.currentTarget;
         let cameraButton = document.getElementById('camera-btn');
@@ -362,8 +397,8 @@ let toggleScreen = async (e) => {
         if (!sharingScreen) {
             sharingScreen = true;
 
-            screenButton.classList.add('active');
             cameraButton.classList.remove('active');
+            cameraButton.classList.add('disabled');
             cameraButton.style.display = 'none';
 
             try {
@@ -386,22 +421,33 @@ let toggleScreen = async (e) => {
                 userContainer.remove();
             }
             
-            displayFrame.style.display = 'block';
-
+            let streamsContainer = document.getElementById('streams__container');
             let player = `<div class="video__container" id="user-container-${uid}">
                         <div class="video-player" id="user-${uid}"></div>
                     </div>`;
 
-            displayFrame.insertAdjacentHTML('beforeend', player);
-            document.getElementById(`user-container-${uid}`).addEventListener('click', expandVideoFrame);
-
-            userIdInDisplayFrame = `user-container-${uid}`;
+            streamsContainer.insertAdjacentHTML('beforeend', player);
             
-            try {
-                localScreenTracks.play(`user-${uid}`);
-                console.log("Odtwarzanie udostępniania ekranu");
-            } catch (error) {
-                logError("Nie udało się odtworzyć strumienia udostępniania ekranu", error);
+            const newContainer = document.getElementById(`user-container-${uid}`);
+            if (newContainer) {
+                displayFrame.style.display = 'block';
+                displayFrame.innerHTML = '';
+                
+                displayFrame.appendChild(newContainer);
+                
+                setUserIdInDisplayFrame(`user-container-${uid}`);
+
+                
+                newContainer.addEventListener('click', expandVideoFrame);
+                
+                try {
+                    localScreenTracks.play(`user-${uid}`);
+                    console.log("Odtwarzanie udostępniania ekranu");
+                } catch (error) {
+                    logError("Nie udało się odtworzyć strumienia udostępniania ekranu", error);
+                }
+            } else {
+                logError("Nie udało się utworzyć kontenera dla udostępniania ekranu", null);
             }
 
             try {
@@ -421,6 +467,9 @@ let toggleScreen = async (e) => {
             }
         } else {
             sharingScreen = false;
+            
+            screenButton.classList.remove('active');
+            screenButton.classList.add('disabled');
             cameraButton.style.display = 'block';
             
             const userContainer = document.getElementById(`user-container-${uid}`);
@@ -442,7 +491,7 @@ let toggleScreen = async (e) => {
     }
 }
 
-let leaveChannel = async () => {
+export let leaveChannel = async () => {
     try {
         for (let i = 0; localTracks.length > i; i++) {
             if (localTracks[i]) {
@@ -468,93 +517,21 @@ let leaveChannel = async () => {
     }
 }
 
-let leaveChannelAndGoToLobby = async () => {
+export let leaveChannelAndGoToLobby = async () => {
     const success = await leaveChannel();
     if (success) {
         window.location = '/strefa-wiedzy/';
     }
 }
 
-let expandVideoFrame = (e) => {
-    
-    try {
-        let child = e.currentTarget;
-        if (!displayFrame) {
-            console.warn("Element displayFrame nie istnieje");
-            return;
-        }
-
-        if (child.id === userIdInDisplayFrame) {
-            document.getElementById(child.id).style.height = '300px';
-            document.getElementById(child.id).style.width = '300px';
-            
-            userIdInDisplayFrame = null;
-            displayFrame.style.display = 'none';
-
-            let videoFrames = document.getElementsByClassName('video__container');
-            for (let i = 0; i < videoFrames.length; i++) {
-                videoFrames[i].style.height = '300px';
-                videoFrames[i].style.width = '300px';
-            }
-            return;
-        }
-
-        userIdInDisplayFrame = child.id;
-        displayFrame.style.display = 'block';
-        displayFrame.innerHTML = '';
-        
-        document.getElementById(child.id).style.height = '100%';
-        document.getElementById(child.id).style.width = '100%';
-        
-        child.appendChild(document.getElementById('stream__box'));
-        
-        let videoFrames = document.getElementsByClassName('video__container');
-        for (let i = 0; i < videoFrames.length; i++) {
-            if (videoFrames[i].id !== userIdInDisplayFrame) {
-                videoFrames[i].style.height = '100px';
-                videoFrames[i].style.width = '100px';
-            }
-        }
-    } catch (error) {
-        logError("Wystąpił błąd podczas rozszerzania ramki wideo", error);
-    }
-}
 
 
-let getMembers = async () => {
-    try {
-        let members = await channel.getMembers();
-        console.log('Członkowie kanału:', members);
-        return members;
-    } catch (error) {
-        logError("Nie udało się pobrać listy członków kanału", error);
-        return [];
-    }
-}
-
-
-let handleMemberJoined = async (memberId) => {
-    console.log("Nowy użytkownik dołączył:", memberId);
-    
-}
-
-let handleMemberLeft = async (memberId) => {
-    console.log("Użytkownik opuścił pokój:", memberId);
-    
-}
-
-let handleChannelMessage = async (messageData, memberId) => {
-    console.log("Otrzymano wiadomość:", messageData, "od:", memberId);
-    
-}
-
-
-let addBotMessageToDom = (message) => {
+export let addBotMessageToDom = (message) => {
     const messageContainer = document.getElementById('messages__container') || document.createElement('div');
     
     let newMessage = `<div class="message__wrapper">
                         <div class="message__body__bot">
-                            <strong class="message__author">🤖 Bot</strong>
+                            <strong class="message__author">🤖 Resq bot</strong>
                             <p class="message__text">${message}</p>
                         </div>
                     </div>`;
@@ -566,17 +543,14 @@ let addBotMessageToDom = (message) => {
 }
 
 
-document.addEventListener('DOMContentLoaded', () => {
-    console.log("Strona załadowana, sprawdzanie dostępności elementów UI...");
+export function initializeRTCEventListeners() {
+    console.log("Initializing RTC event listeners...");
     
     const elementsToCheck = [
         'camera-btn', 
         'mic-btn', 
         'screen-btn', 
-        'leave-btn', 
-        'streams__container',
-        'stream__box',
-        'messages__container'
+        'leave-btn'
     ];
     
     elementsToCheck.forEach(id => {
@@ -585,7 +559,6 @@ document.addEventListener('DOMContentLoaded', () => {
             console.warn(`Nie znaleziono elementu HTML o ID ${id}`);
         }
     });
-    
     
     const cameraBtn = document.getElementById('camera-btn');
     const micBtn = document.getElementById('mic-btn');
@@ -596,13 +569,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (micBtn) micBtn.addEventListener('click', toggleMic);
     if (screenBtn) screenBtn.addEventListener('click', toggleScreen);
     if (leaveBtn) leaveBtn.addEventListener('click', leaveChannelAndGoToLobby);
-    
-    displayFrame = document.getElementById('stream__box') || document.createElement('div');
-});
-
-
-if (document.readyState === 'complete') {
-    joinRoomInit();
-} else {
-    window.addEventListener('load', joinRoomInit);
 }
+
+document.addEventListener('DOMContentLoaded', initializeRTCEventListeners);

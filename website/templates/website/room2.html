@@ -5,12 +5,12 @@
     <meta charset='utf-8'>
     <meta http-equiv='X-UA-Compatible' content='IE=edge'>
     <title>SchoolWeb Converse</title>
-    <link rel="icon" type="image/x-icon" href="{% static 'img/widget/logo.png' %}">
+    <link rel="icon" type="image/x-icon" href="{% static 'website/img/widget/logo.png' %}">
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <link href="{% static 'website/css/main.css' %}" rel="stylesheet">
     <link href="{% static 'website/css/room.css' %}" rel="stylesheet">
     <script>
-        sessionStorage.setItem('display_name', '{{ user.username }}');
+        sessionStorage.setItem('display_name', '{{ user.first_name }}');
     </script>
 </head>
 <body>
@@ -87,7 +87,5 @@
 </body>
 <script type="text/javascript" src="{% static 'website/js/AgoraRTC_N-4.22.1.js' %}"></script>
 <script type="text/javascript" src="{% static 'website/js/agora-rtm-sdk-1.5.1.js' %}"></script>
-<script type="module" src="{% static 'website/js/room2.js' %}"></script>
-<script type="module" src="{% static 'website/js/room2_rtm.js' %}"></script>
-<script src="{% static 'website/js/room2_rtc.js' %}"></script>
+<script type="module" src="{% static 'website/js/main.js' %}"></script>
 </html>

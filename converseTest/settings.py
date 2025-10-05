@@ -132,3 +132,8 @@ LOGOUT_REDIRECT_URL = '/login/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Agora Configuration
+AGORA_APP_ID = 'f3d9aeee514b4958bae2a751a01a49e9'
+AGORA_APP_CERTIFICATE = 'd146f40bd31b41f68d6d195606270d2f'
+AGORA_TOKEN_EXPIRE_SECONDS = 3600  # 1 hour

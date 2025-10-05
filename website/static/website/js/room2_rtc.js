@@ -1,13 +1,14 @@
 import { displayFrame, videoFrames, userIdInDisplayFrame, expandVideoFrame, setUserIdInDisplayFrame } from './room2.js';
 
-export const APP_ID = 'f3d9aeee514b4958bae2a751a01a49e9';
+export let APP_ID;
 export let rtmClient;
 export let channel;
 export let uid;
 export let displayName;
 export let roomId;
 
-let token = null;
+let rtcToken = null;
+let rtmToken = null;
 let client;
 let localTracks = [];
 let remoteUsers = {};
@@ -27,10 +28,10 @@ function initializeVariables() {
         sessionStorage.setItem('uid', uid);
     }
 
-    const queryString = window.location.search;
-    const urlParams = new URLSearchParams(queryString);
-    roomId = urlParams.get('room');
-    console.log('Room ID:', roomId);
+    // Pobierz roomId z URL path (np. /room/ABC123/)
+    const pathParts = window.location.pathname.split('/');
+    roomId = pathParts[2]; // /room/{room_code}/
+    console.log('Room ID from path:', roomId);
 
     if (!roomId) {
         roomId = 'main';
@@ -45,15 +46,61 @@ function initializeVariables() {
 
 initializeVariables();
 
-export let joinRoomInit = async () => {
-    if (!APP_ID) {
-        logError("Brak APP_ID. Należy ustawić prawidłowy APP_ID z panelu Agora");
-        return;
-    }
+async function fetchAgoraToken() {
     try {
+        console.log("Pobieranie tokenu Agora z serwera...");
+        const response = await fetch(`/api/agora-token/?channel=${roomId}&uid=${uid}`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Nieznany błąd podczas pobierania tokenu');
+        }
+
+        console.log("Token Agora pobrany pomyślnie");
+        return data;
+    } catch (error) {
+        logError("Nie udało się pobrać tokenu Agora", error);
+        throw error;
+    }
+}
+
+export let joinRoomInit = async () => {
+    try {
+        // Pobierz token i konfigurację z serwera Django
+        const tokenData = await fetchAgoraToken();
+
+        // Ustaw zmienne globalne
+        APP_ID = tokenData.appId;
+        rtcToken = tokenData.rtcToken;
+        rtmToken = tokenData.rtmToken;
+        uid = tokenData.uid.toString();
+        displayName = tokenData.displayName;
+
+        // Zapisz UID w sessionStorage
+        sessionStorage.setItem('uid', uid);
+
+        console.log("Konfiguracja Agora:", {
+            appId: APP_ID,
+            channelName: tokenData.channelName,
+            uid: uid,
+            displayName: displayName,
+            hasRtcToken: !!rtcToken,
+            hasRtmToken: !!rtmToken
+        });
+
         console.log("Inicjalizacja połączenia RTM...");
         rtmClient = await AgoraRTM.createInstance(APP_ID)
-        await rtmClient.login({ uid, token })
+
+        // Jeśli rtmToken jest null, użyj rtcToken jako fallback
+        const tokenToUse = rtmToken || rtcToken;
+        console.log("Używam tokenu RTM:", tokenToUse ? "Token dostępny" : "Brak tokenu");
+
+        await rtmClient.login({ uid, token: tokenToUse })
             .catch(error => {
                 logError("Nie udało się zalogować do Agora RTM", error);
                 throw error;
@@ -72,14 +119,14 @@ export let joinRoomInit = async () => {
             });
 
         console.log("Dołączono do kanału RTM:", roomId);
-        
-        
+
+
         addBotMessageToDom(`Witaj na zajęciach ${displayName}! 👋`)
 
         console.log("Inicjalizacja połączenia RTC...");
         client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' })
-        
-        
+
+
         client.on("connection-state-change", (curState, prevState) => {
             console.log("Zmiana stanu połączenia:", prevState, "->", curState);
             if (curState === "DISCONNECTED") {
@@ -87,7 +134,7 @@ export let joinRoomInit = async () => {
             }
         });
 
-        await client.join(APP_ID, roomId, token, uid)
+        await client.join(APP_ID, roomId, rtcToken, uid)
             .catch(error => {
                 logError("Nie udało się dołączyć do RTC", error);
                 throw error;
@@ -181,6 +228,10 @@ export let joinStream = async () => {
         }
 
         try {
+            await localTracks[0].setMuted(true);
+
+            console.log("Mikrofon wyciszony domyślnie");
+
             await localTracks[1].setMuted(true);
             console.log("Kamera wyciszona domyślnie");
 
@@ -203,6 +254,13 @@ export let joinStream = async () => {
             cameraBtn.classList.add('disabled');
         }
 
+        let micBtn = document.getElementById('mic-btn');
+        if (micBtn) {
+            micBtn.classList.remove('active');
+            micBtn.classList.add('disabled');
+            console.log("Przycisk mikrofonu ustawiony jako wyłączony domyślnie");
+        }
+
     } catch (error) {
         logError("Wystąpił błąd podczas dołączania do strumienia", error);
     }
@@ -215,14 +273,14 @@ export let switchToCamera = async () => {
         let player = `<div class="video__container" id="user-container-${uid}">
                         <div class="video-player" id="user-${uid}"></div>
                      </div>`;
-        
+
         streamsContainer.insertAdjacentHTML('beforeend', player);
-        
+
         await localTracks[1].setMuted(true);
 
         const cameraBtn = document.getElementById('camera-btn');
         const screenBtn = document.getElementById('screen-btn');
-        
+
         if (cameraBtn) {
             cameraBtn.classList.remove('active');
             cameraBtn.classList.add('disabled');
@@ -235,7 +293,7 @@ export let switchToCamera = async () => {
         const newContainer = document.getElementById(`user-container-${uid}`);
         if (newContainer) {
             newContainer.addEventListener('click', expandVideoFrame);
-            
+
             try {
                 localTracks[1].play(`user-${uid}`);
                 console.log("Przełączono na kamerę (wyciszoną)");
@@ -253,9 +311,9 @@ export let switchToCamera = async () => {
         } catch (error) {
             logError("Nie udało się opublikować strumienia kamery", error);
         }
-        
+
         displayFrame.style.display = 'none';
-        
+
         let videoFrames = document.getElementsByClassName('video__container');
         for (let i = 0; i < videoFrames.length; i++) {
             videoFrames[i].style.height = '300px';
@@ -315,7 +373,7 @@ export let handleUserLeft = async (user) => {
     try {
         console.log(`Użytkownik ${user.uid} opuścił pokój`);
         delete remoteUsers[user.uid];
-        
+
         const userContainer = document.getElementById(`user-container-${user.uid}`);
         if (userContainer) {
             userContainer.remove();
@@ -355,10 +413,12 @@ export let toggleMic = async (e) => {
         if (localTracks[0].muted) {
             await localTracks[0].setMuted(false);
             button.classList.add('active');
+            button.classList.remove('disabled');
             console.log("Mikrofon włączony");
         } else {
             await localTracks[0].setMuted(true);
             button.classList.remove('active');
+            button.classList.add('disabled');
             console.log("Mikrofon wyciszony");
         }
     } catch (error) {
@@ -420,26 +480,26 @@ export let toggleScreen = async (e) => {
             if (userContainer) {
                 userContainer.remove();
             }
-            
+
             let streamsContainer = document.getElementById('streams__container');
             let player = `<div class="video__container" id="user-container-${uid}">
                         <div class="video-player" id="user-${uid}"></div>
                     </div>`;
 
             streamsContainer.insertAdjacentHTML('beforeend', player);
-            
+
             const newContainer = document.getElementById(`user-container-${uid}`);
             if (newContainer) {
                 displayFrame.style.display = 'block';
                 displayFrame.innerHTML = '';
-                
+
                 displayFrame.appendChild(newContainer);
-                
+
                 setUserIdInDisplayFrame(`user-container-${uid}`);
 
-                
+
                 newContainer.addEventListener('click', expandVideoFrame);
-                
+
                 try {
                     localScreenTracks.play(`user-${uid}`);
                     console.log("Odtwarzanie udostępniania ekranu");
@@ -467,11 +527,11 @@ export let toggleScreen = async (e) => {
             }
         } else {
             sharingScreen = false;
-            
+
             screenButton.classList.remove('active');
             screenButton.classList.add('disabled');
             cameraButton.style.display = 'block';
-            
+
             const userContainer = document.getElementById(`user-container-${uid}`);
             if (userContainer) {
                 userContainer.remove();
@@ -508,7 +568,7 @@ export let leaveChannel = async () => {
         await client.leave();
         await channel.leave();
         await rtmClient.logout();
-        
+
         console.log("Opuszczono pokój");
         return true;
     } catch (error) {
@@ -528,43 +588,43 @@ export let leaveChannelAndGoToLobby = async () => {
 
 export let addBotMessageToDom = (message) => {
     const messageContainer = document.getElementById('messages__container') || document.createElement('div');
-    
+
     let newMessage = `<div class="message__wrapper">
                         <div class="message__body__bot">
                             <strong class="message__author">🤖 Resq bot</strong>
                             <p class="message__text">${message}</p>
                         </div>
                     </div>`;
-                    
+
     messageContainer.insertAdjacentHTML('beforeend', newMessage);
-    
-    
+
+
     messageContainer.scrollTop = messageContainer.scrollHeight;
 }
 
 
 export function initializeRTCEventListeners() {
     console.log("Initializing RTC event listeners...");
-    
+
     const elementsToCheck = [
-        'camera-btn', 
-        'mic-btn', 
-        'screen-btn', 
+        'camera-btn',
+        'mic-btn',
+        'screen-btn',
         'leave-btn'
     ];
-    
+
     elementsToCheck.forEach(id => {
         const element = document.getElementById(id);
         if (!element) {
             console.warn(`Nie znaleziono elementu HTML o ID ${id}`);
         }
     });
-    
+
     const cameraBtn = document.getElementById('camera-btn');
     const micBtn = document.getElementById('mic-btn');
     const screenBtn = document.getElementById('screen-btn');
     const leaveBtn = document.getElementById('leave-btn');
-    
+
     if (cameraBtn) cameraBtn.addEventListener('click', toggleCamera);
     if (micBtn) micBtn.addEventListener('click', toggleMic);
     if (screenBtn) screenBtn.addEventListener('click', toggleScreen);

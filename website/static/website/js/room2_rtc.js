@@ -28,20 +28,17 @@ function initializeVariables() {
         sessionStorage.setItem('uid', uid);
     }
 
-    // Pobierz roomId z URL path (np. /room/ABC123/)
-    const pathParts = window.location.pathname.split('/');
-    roomId = pathParts[2]; // /room/{room_code}/
-    console.log('Room ID from path:', roomId);
-
-    if (!roomId) {
-        roomId = 'main';
-    }
+    // Pobierz roomId z query stringa ?room=HZsRsNcl
+    const urlParams = new URLSearchParams(window.location.search);
+    roomId = urlParams.get('room') || 'main';
 
     displayName = sessionStorage.getItem('display_name');
     if (!displayName) {
         displayName = "Użytkownik_" + uid;
         console.warn("Nie znaleziono display_name, używam domyślnej wartości:", displayName);
     }
+
+    console.log("Room ID:", roomId);
 }
 
 initializeVariables();
@@ -587,7 +584,7 @@ export let leaveChannelAndGoToLobby = async () => {
 
 
 export let addBotMessageToDom = (message) => {
-    const messageContainer = document.getElementById('messages__container') || document.createElement('div');
+    const messageContainer = document.getElementById('messages');
 
     let newMessage = `<div class="message__wrapper">
                         <div class="message__body__bot">

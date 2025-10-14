@@ -3,6 +3,11 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth import logout
 from .models import Lesson
+from agora_token_builder import RtcTokenBuilder, RtmTokenBuilder
+from django.conf import settings
+from django.http import JsonResponse
+import time
+
 
 
 def home(request):
@@ -21,20 +26,17 @@ def register(request):
 
 
 def converse(request):
-    user = get_user(request)
-    room_code = request.GET.get('room')
-
-    post = get_object_or_404(Lesson, invite_code=room_code)
-
-    if user not in post.clicked_users.all():
-        post.add_click(user)
+    user = request.user
+    room_code = request.GET.get('room', 'main')
 
     context = {
         'user': user,
-        'post': post,
+        'room_code': room_code
     }
 
     return render(request, 'website/room2.html', context)
+
+
 
 
 @login_required

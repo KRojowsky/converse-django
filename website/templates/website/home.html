@@ -1,7 +1,15 @@
 <h1>Strona główna</h1>
+
 {% if user.is_authenticated %}
   <p>Witaj, {{ user.username }} | <a href="{% url 'logout' %}">Wyloguj</a></p>
-  <a href="{% url 'converse' room_code='pokoj123' %}">Wejdź do pokoju</a>
+
+  <p>Wybierz pokój:</p>
+  <ul>
+    <li><a href="{% url 'converse' %}?room=HZsRsNcl">Pokój 1</a></li>
+    <li><a href="{% url 'converse' %}?room=Xt4pQw8Z">Pokój 2</a></li>
+    <li><a href="{% url 'converse' %}?room=Mn2LdF0K">Pokój 3</a></li>
+  </ul>
+
 {% else %}
   <p><a href="{% url 'login' %}">Zaloguj się</a> lub <a href="{% url 'register' %}">Zarejestruj</a></p>
 {% endif %}

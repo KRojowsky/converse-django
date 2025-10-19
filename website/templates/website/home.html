@@ -10,6 +10,27 @@
     <li><a href="{% url 'converse' %}?room=Mn2LdF0K">Pokój 3</a></li>
   </ul>
 
+  <h2>Wybierz kwotę do zapłaty:</h2>
+  <div>
+    <form action="" method="POST">
+      {% csrf_token %}
+      <input type="hidden" name="amount" value="50">
+      <button type="submit">50 zł</button>
+    </form>
+
+    <form action="" method="POST">
+      {% csrf_token %}
+      <input type="hidden" name="amount" value="100">
+      <button type="submit">100 zł</button>
+    </form>
+
+    <form action="" method="POST">
+      {% csrf_token %}
+      <input type="hidden" name="amount" value="150">
+      <button type="submit">150 zł</button>
+    </form>
+  </div>
+
 {% else %}
   <p><a href="{% url 'login' %}">Zaloguj się</a> lub <a href="{% url 'register' %}">Zarejestruj</a></p>
 {% endif %}
